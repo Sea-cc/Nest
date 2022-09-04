@@ -18,6 +18,8 @@ async function bootstrap() {
 
     // 全局过滤器
     app.useGlobalFilters(new HttpExceptionFilter());
+    // 全局使用管道
+    // app.useGlobalPipes(new ValidationPipe());
     // 创建 swagger 文档
     const options = new DocumentBuilder()
       .setTitle('Nest Serve')
