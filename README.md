@@ -924,6 +924,169 @@ export class AppModule {
 }
 ```
 
+## 管道 🤿
+
+在示例`@Patch`中，更新 info 时，需要动态获取用户 ID，`ID 为一个 String 类型 ID`
+
+处理应用程序中，希望`id`参数为一个数字类型，则可以通过管道进行转化
+
+```js
+@Patch(':id')
+  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+    return this.usersService.update(+id, updateUserDto);
+}
+```
+
+**Nest 内置管道 ParseIntPipe 管道，能够自动将它转化为数字类型的 ID**,zai`@nestjs/common`中引入，在装饰器 @Param 中实例化使用
+
+**单个模块方法使用 🏷️**
+
+```js
+ @Patch(':id')
+ update(
+ // new ParseIntPipe() 接受一个参数，左边的 id 就是 ParseIntPipe 接受的参数，经过处理之后将结果赋值到外层的 id(id: string) 参数中
+ @Param('id', new ParseIntPipe()) id: string,
+ @Body() updateUserDto: UpdateUserDto,
+  ) {
+    return this.usersService.update(+id, updateUserDto);
+  }
+```
+
+**全局管道使用(类似于中间件的全局使用)**
+
+```js
+// 全局过滤器
+app.useGlobalFilters(new HttpExceptionFilter());
+// 全局使用管道
+app.useGlobalPipes(new ValidationPipe());
+```
+
+> 类似 ParseIntPipe 管道，Nest 还提供更多的管道，详情查看官方文档
+
+### 自定义管道
+
+方法与中间件类似
+
+Injectable 8 进行注入创建各种关系，**继承 管道 提供的类，实现它的方法**，处理数据返回
+
+当客户端传值错误时，无法进行转化，抛出 `throw new badRequestException('参数错误')`，提示客户端坏的请求
+
+## 角色控制守卫
+
+守卫是一个使用 `@Injectable()` 装饰器的类。 守卫应该实现 **`CanActivate`** 接口。
+
+同时也支持 局部使用 or 全局使用
+
+🍃**根据运行时出现的某些条件（例如权限，角色，访问控制列表等）来确定给定的请求是否由路由处理程序处理。**这通常称为授权。**在传统的 `Express` 应用程序中，通常由中间件处理授权(以及认证)**。中间件是身份验证的良好选择，因为诸如 `token` 验证或添加属性到 `request` 对象上与特定路由(及其元数据)没有强关联。
+
+> 中间件不知道调用 `next()` 函数后会执行哪个处理程序。另一方面，守卫可以访问 `ExecutionContext` 实例 🤿，因此确切地知道接下来要执行什么。它们的设计与异常过滤器、管道和拦截器非常相似，目的是让您在请求/响应周期的正确位置插入处理逻辑，并以声明的方式进行插入。这有助于保持代码的简洁和声明性。
+
+> **`守卫在每个中间件之后执行，但在任何拦截器或管道之前执行`**🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃🍃
+
+```js
+// 导入 守卫装饰器 UseGuards
+import { Controller, Get, UseGuards } from '@nestjs/common';
+// 导入自定义的 Guards 守卫(守卫在 控制器的顶部使用)
+import { RolesGuards } from './common/guards/role.guards';
+// 自定义的装饰器，配合自定义的守卫进行使用(自定义装饰器在方法中独立使用)
+import { RolesDecorator } from './common/decorator/role.decorator';
+
+
+@Controller('users')
+@UseGuards(RolesGuards) // ...
+export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
+  @Post()
+  @ApiBody({ type: CreateUserDto })
+  @ApiResponse({
+    status: 201,
+    description: 'The record has been successfully created.',
+  })
+  @RolesDecorator('admin') /// ...'admin' 表示 'admin' 拥有权限
+  create(@Body() createUserDto: CreateUserDto) {
+    return this.usersService.create(createUserDto);
+  }
+}
+```
+
+`./common/guards/role.guards.ts`
+
+```js
+// 导入 守卫的实现类,注入装饰器,守卫可以访问的 `ExecutionContext` 实例
+import { CanActivate, Injectable, ExecutionContext } from '@nestjs/common';
+// 导入 `Reflector` ,用于获取 `@SetMetadata` 装饰器的元数据【Reflector：反射】
+import { Reflector } from '@nestjs/core';
+
+// 定义一个 `RolesGuard` 类,实现 `CanActivate` 接口
+// 守卫的返回值- return 为 Boolean
+@Injectable()
+export class RolesGuard implements CanActivate {
+  /* Reflector作用：【让守卫与装饰器进行桥接的桥梁】 */
+  // 初始化
+  constructor(private reflector: Reflector) {}
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> {
+    // 获取 模块方法 中使用装饰器@Roles配置的 `@SetMetadata` 的元数据(详情查看 `roles.decorator.ts`逻辑)
+    // SetMetadata('roles', roles) => (key, value)🍃
+    const roles = this.reflector.get<string[]>('roles', context.getHandler());
+    // 如果没有设置 `roles` 元数据,则直接返回 `true`,即不需要进行权限验证🍃
+    if (!roles) return true;
+    // 存在,获取请求对象
+    const request = context.switchToHttp().getRequest();
+    // 获取请求头中的 `authorization` 字段
+    const authHeader = request.headers.authorization;
+  }
+}
+```
+
+`role.decorator.ts`
+
+```js
+import { SetMetadata } from '@nestjs/common';
+
+export const Roles = (...roles: string[]) => SetMetadata('roles', roles);
+```
+
+## 自定义`路由参数`装饰器
+
+**`Nest` 是基于装饰器这种语言特性而创建的。在很多常见的编程语言中，装饰器是一个广为人知的概念**，但在 `JavaScript` 世界中，这个概念仍然相对较新。所以为了更好地理解装饰器是如何工作的，你应该看看 [这篇](https://medium.com/google-developers/exploring-es7-decorators-76ecb65fb841) 文章。下面给出一个简单的定义：
+
+`ES2016` **`装饰器是一个表达式`**，**它返回一个可以将目标、名称和属性描述符`作为参数的函数`**🍃。通过在装饰器前面添加一个 `@` 字符并将其放置在你**`要装饰的内容的最顶部`**来应用它。**可以为类、方法或属性定义装饰器。**
+
+`export const Roles = (...roles: string[]) => SetMetadata('roles', roles);` or ⬇️
+
+在 `Node.js` 中，会经常将需要传递的值加到请求对象的属性中。然后在每个路由处理程序中手动提取它们，使用如下代码：
+
+```typescript
+const user = req.user;
+```
+
+为了使代码更具可读性和透明性，我们可以创建一个 `@User()` 装饰器并在所有控制器中使用它。
+
+> user.decorator.ts
+
+```typescript
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+(data: unknown, ctx: ExecutionContext) => (key,value)   ExecutionContext => request
+export const User = createParamDecorator((data: unknown, ctx: ExecutionContext) => {
+  const request = ctx.switchToHttp().getRequest();
+  return request.user;
+});
+```
+
+现在你可以在任何你想要的地方很方便地使用它。
+
+```typescript
+@Get()
+async findOne(@User() user: UserEntity) {
+  console.log(user);
+}
+```
+
 ## Injectable 装饰器
 
 Injectable 作用是可以彼此创建各种关系，并且“连接”对象实例的功能在很大程度上可以委托给 Nest 运行时系统
+
+## 总结
+
+自定义过滤器、管道、守卫和中间件都需要通过使用 Injectable 装饰器进行建立彼此关系
