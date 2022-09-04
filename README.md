@@ -1,6 +1,6 @@
 # NestJs
 
-![](./img/NestJs-16622077831711.png)
+![](./img/NestJs.png)
 
 ## 简介
 
